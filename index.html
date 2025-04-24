@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mines Game</title>
+  <style>
+    body {
+      background: linear-gradient(to right, #0f2027, #203a43, #2c5364);
+      color: #ffffff;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+    .controls {
+      background: #1e1e2f;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+      margin-bottom: 30px;
+      width: 100%;
+      max-width: 320px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      animation: fadeIn 0.5s ease-in-out;
+    }
+    .controls label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+    }
+    .controls input {
+      padding: 6px;
+      border-radius: 6px;
+      border: none;
+      outline: none;
+      font-size: 14px;
+      width: 100px;
+    }
+    .controls button {
+      padding: 10px;
+      background: #4caf50;
+      border: none;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.3s, transform 0.2s;
+    }
+    .controls button:hover {
+      background: #45a049;
+      transform: scale(1.05);
+    }
+    #multiplier {
+      font-size: 16px;
+      text-align: center;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+      grid-gap: 10px;
+      max-width: 320px;
+      animation: fadeIn 0.8s ease-in-out;
+    }
+    .tile {
+      width: 100%;
+      aspect-ratio: 1/1;
+      background: #2e2e3f;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: background 0.2s, transform 0.2s;
+    }
+    .tile:hover {
+      transform: scale(1.05);
+    }
+    .tile.revealed {
+      background: #4caf50;
+    }
+    .tile.mine {
+      background: #e53935;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (max-width: 400px) {
+      .controls label {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .controls input {
+        width: 100%;
+      }
+    }
+    .profile-link {
+      margin-top: 10px;
+      color: #f9a825;
+      text-decoration: none;
+      font-size: 14px;
+      transition: color 0.3s;
+    }
+    .profile-link:hover {
+      color: #fff176;
+    }
+  </style>
+</head>
+<body>
+  <h1 style="margin-bottom: 10px;">Mines Game</h1>
+  <div class="controls">
+    <p id="userInfo" style="text-align: center; font-weight: bold;"></p>
+    <p id="balance" style="text-align: center; font-weight: bold;">Balance: </p>
+    <label>Bet Amount: <input type="number" id="betAmount" min="1" /></label>
+    <label>Mines: <input type="number" id="mineCount" min="1" max="24" /></label>
+    <button onclick="startGame()">Start Game</button>
+    <button onclick="cashOut()" style="background: #f9a825;">Cash Out</button>
+    <p id="multiplier">Multiplier: 1.00x</p>
+    <a class="profile-link" href="profile.html">Go to Profile</a>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <audio id="clickSound" src="https://www.soundjay.com/buttons/sounds/button-30.mp3" preload="auto"></audio>
+  <audio id="mineSound" src="https://www.soundjay.com/button/sounds/button-16.mp3" preload="auto"></audio>
+  <audio id="cashoutSound" src="https://www.soundjay.com/misc/sounds/cash-register-01.mp3" preload="auto"></audio>
+
+  <script>
+    const gridSize = 25;
+    let minePositions = [];
+    let revealedTiles = 0;
+    let playing = false;
+    let currentBet = 0;
+    let currentUser = localStorage.getItem('currentUser');
+    if (!currentUser) window.location.href = 'index.html';
+    let userData = JSON.parse(localStorage.getItem('user_' + currentUser));
+    if (!userData) userData = { balance: 1000, history: [] };
+
+    const clickSound = document.getElementById("clickSound");
+    const mineSound = document.getElementById("mineSound");
+    const cashoutSound = document.getElementById("cashoutSound");
+    const balanceDisplay = document.getElementById("balance");
+
+    document.getElementById("userInfo").innerText = `Logged in as: ${currentUser}`;
+
+    function updateBalanceDisplay() {
+      balanceDisplay.innerText = `Balance: ${userData.balance.toFixed(2)}`;
+    }
+
+    function startGame() {
+      const bet = parseFloat(document.getElementById("betAmount").value);
+      const mineCount = parseInt(document.getElementById("mineCount").value);
+      if (isNaN(bet) || bet <= 0 || isNaN(mineCount) || mineCount < 1 || mineCount >= gridSize) {
+        alert("Enter valid bet and mine count.");
+        return;
+      }
+      if (bet > userData.balance) {
+        alert("Insufficient balance.");
+        return;
+      }
+
+      currentBet = bet;
+      userData.balance -= bet;
+      updateBalanceDisplay();
+      saveUserData();
+
+      const grid = document.getElementById("grid");
+      grid.innerHTML = "";
+      minePositions = [];
+      revealedTiles = 0;
+      playing = true;
+      document.getElementById("multiplier").innerText = "Multiplier: 1.00x";
+
+      while (minePositions.length < mineCount) {
+        const pos = Math.floor(Math.random() * gridSize);
+        if (!minePositions.includes(pos)) minePositions.push(pos);
+      }
+
+      for (let i = 0; i < gridSize; i++) {
+        const tile = document.createElement("div");
+        tile.classList.add("tile");
+        tile.dataset.index = i;
+        tile.onclick = () => revealTile(tile);
+        grid.appendChild(tile);
+      }
+    }
+
+    function revealTile(tile) {
+      if (!playing || tile.classList.contains("revealed")) return;
+      const index = parseInt(tile.dataset.index);
+      if (minePositions.includes(index)) {
+        tile.classList.add("mine");
+        mineSound.play();
+        alert("Boom! You hit a mine. You lost the round.");
+        playing = false;
+        saveUserData();
+      } else {
+        tile.classList.add("revealed");
+        revealedTiles++;
+        clickSound.play();
+        updateMultiplier();
+      }
+    }
+
+    function updateMultiplier() {
+      const multiplier = (1 + revealedTiles * (0.1 + (minePositions.length / 25))).toFixed(2);
+      document.getElementById("multiplier").innerText = `Multiplier: ${multiplier}x`;
+    }
+
+    function cashOut() {
+      if (!playing || revealedTiles === 0) return;
+      const multiplier = parseFloat(document.getElementById("multiplier").innerText.split(" ")[1].replace("x", ""));
+      const winnings = (currentBet * multiplier);
+      userData.balance += winnings;
+      updateBalanceDisplay();
+      cashoutSound.play();
+      alert(`You cashed out with ${winnings.toFixed(2)}!`);
+      playing = false;
+      userData.history.push({ date: new Date().toLocaleString(), profit: winnings - currentBet });
+      saveUserData();
+    }
+
+    function saveUserData() {
+      localStorage.setItem('user_' + currentUser, JSON.stringify(userData));
+    }
+
+    updateBalanceDisplay();
+  </script>
+</body>
+</html>
